@@ -62,6 +62,7 @@ This userscript is compatible with any modern desktop browser running a script m
 2. Click the link below to install the script automatically:
 
 👉 **[INSTALL USERSCRIPT DIRECTLY](https://raw.githubusercontent.com/Phoslead/pokeidle_bettermap/main/pokeidle_bettermap.user.js)** 👈
+
 3. Tampermonkey will prompt an installation tab. Click **"Install"**.
 4. Open or refresh the game tab!
 
