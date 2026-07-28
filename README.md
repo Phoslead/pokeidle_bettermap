@@ -61,8 +61,7 @@ This userscript is compatible with any modern desktop browser running a script m
 1. Make sure you have a script manager extension (such as **[Tampermonkey](https://www.tampermonkey.net/)**) installed in your browser.
 2. Click the link below to install the script automatically:
 
-👉 **[INSTALL USERSCRIPT DIRECTLY](https://raw.githubusercontent.com/hariseld/pokeidle_bettermap/main/bettermap.user.js)** 👈
-
+👉 **[INSTALL USERSCRIPT DIRECTLY](https://raw.githubusercontent.com/Phoslead/pokeidle_bettermap/main/pokeidle_bettermap.user.js)** 👈
 3. Tampermonkey will prompt an installation tab. Click **"Install"**.
 4. Open or refresh the game tab!
 
@@ -73,7 +72,7 @@ This userscript is compatible with any modern desktop browser running a script m
 If the automatic link does not trigger your script manager, follow these steps:
 
 1. Open your browser's extension panel for **Tampermonkey** and click **"Create a new script..."**.
-2. Open the script file from this repository: [`bettermap.user.js`](https://github.com/hariseld/pokeidle_bc/blob/main/bettermap.user.js).
+2. Open the script file from this repository: [`pokeidle_bettermap.user.js`](https://github.com/Phoslead/pokeidle_bettermap/blob/main/pokeidle_bettermap.user.js).
 3. Copy the entire JavaScript code.
 4. Paste the code inside the Tampermonkey script editor, replacing any default template text.
 5. Save the script (**Ctrl + S** or `File -> Save`).
