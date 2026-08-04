@@ -2,6 +2,11 @@
 
 All notable changes to the PokeIdle Better Map script will be documented in this file.
 
+## [0.2.1] - 2026-08-04
+
+### Added
+- **Tooltip Fix Toggle:** Added a new setting to disable the custom map tooltip CSS injection. This resolves visual conflicts when using third-party launchers/Scripts that implement their own custom tooltip fixes.
+
 ## [0.2] - 2026-08-04
 
 ### Added

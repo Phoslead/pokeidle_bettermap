@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeIdle Better Map
 // @namespace    http://tampermonkey.net/
-// @version      0.1
+// @version      0.2.1
 // @description  Agrega indicadores de captura al mapa
 // @author       phoslead
 // @match        https://poke.idleworld.online/*
@@ -13,27 +13,21 @@
 (function () {
     'use strict';
 
-    // =========================================================================
-    // 0. PROTECCIÓN DE LOCALSTORAGE (Prevenir que el juego borre nuestros datos)
-    // =========================================================================
     const PREFIX = 'bettermap_';
-    
-    // Proteger localStorage.removeItem()
+
     const originalRemoveItem = localStorage.removeItem;
-    localStorage.removeItem = function(key) {
+    localStorage.removeItem = function (key) {
         if (key && key.startsWith(PREFIX)) {
             console.warn(`[PokeIdle Better Map] Se bloqueó un intento de borrar la clave: ${key}`);
-            return; 
+            return;
         }
         return originalRemoveItem.apply(this, arguments);
     };
 
-    // Proteger localStorage.clear()
     const originalClear = localStorage.clear;
-    localStorage.clear = function() {
+    localStorage.clear = function () {
         console.warn(`[PokeIdle Better Map] El juego intentó hacer un clear() completo. Respaldando datos...`);
-        
-        // Guardamos temporalmente nuestras variables
+
         const misDatos = {};
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
@@ -41,36 +35,53 @@
                 misDatos[key] = localStorage.getItem(key);
             }
         }
-        
-        // Dejamos que el juego limpie todo
+
         originalClear.apply(this, arguments);
-        
-        // Restauramos nuestras variables protegidas inmediatamente
+
         for (const key in misDatos) {
             localStorage.setItem(key, misDatos[key]);
         }
     };
 
+    function toggleTooltipFix() {
+        let style = document.getElementById('bettermap-tooltip-style');
+        if (settings.fixTooltip) {
+            if (!style) {
+                style = document.createElement('style');
+                style.id = 'bettermap-tooltip-style';
+                style.innerHTML = `
+                    .map-window {
+                        overflow: visible !important;
+                    }
+                    .map-window > .map-tip {
+                        position: absolute !important;
+                        left: 100% !important;
+                        bottom: 0px !important;
+                        top: auto !important;
+                        right: auto !important;
+                        margin-left: 15px !important;
+                        transform: none !important;
+                        z-index: 999999 !important;
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+        } else {
+            if (style) style.remove();
+
+            const mapWin = document.querySelector('.map-window');
+            if (mapWin) {
+                const tooltip = mapWin.querySelector(':scope > .map-tip');
+                if (tooltip) {
+                    document.body.appendChild(tooltip);
+                }
+            }
+        }
+    }
+
     function initUI() {
         console.log("PokeIdle Better Map: Inicializando UI...");
-
-        const style = document.createElement('style');
-        style.innerHTML = `
-            .map-window {
-                overflow: visible !important;
-            }
-            .map-window > .map-tip {
-                position: absolute !important;
-                left: 100% !important;
-                bottom: 0px !important;
-                top: auto !important;
-                right: auto !important;
-                margin-left: 15px !important;
-                transform: none !important;
-                z-index: 999999 !important;
-            }
-        `;
-        document.head.appendChild(style);
+        toggleTooltipFix();
     }
 
     const storageCache = {
@@ -112,7 +123,8 @@
         showLock: 'text',
         mapSize: 'normal',
         show100KillsCheck: true,
-        onlyMissing100Kills: false
+        onlyMissing100Kills: false,
+        fixTooltip: true
     }, savedSettings);
 
     if (settings.showCaught !== undefined) {
@@ -284,6 +296,7 @@
 
         injectPokeballIcons();
         applyMapSize();
+        toggleTooltipFix();
     }
 
     function applyMapSize() {
@@ -525,10 +538,17 @@
                 </label>
             </div>
 
-            <div style="margin-bottom: 18px;">
+            <div style="margin-bottom: 10px;">
                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px;">
                     <input type="checkbox" id="bm-only-missing-100" ${settings.onlyMissing100Kills ? 'checked' : ''} style="cursor: pointer;">
                     Only show pokemon missing 100 kills
+                </label>
+            </div>
+
+            <div style="margin-bottom: 18px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px;">
+                    <input type="checkbox" id="bm-fix-tooltip" ${settings.fixTooltip ? 'checked' : ''} style="cursor: pointer;">
+                    Fix map tooltip (disable if bugged)
                 </label>
             </div>
 
@@ -585,6 +605,11 @@
             saveSettings();
         };
 
+        document.getElementById('bm-fix-tooltip').onchange = (e) => {
+            settings.fixTooltip = e.target.checked;
+            saveSettings();
+        };
+
         const radios = win.querySelectorAll('input[name="bm-lock"]');
         radios.forEach(r => r.onchange = (e) => {
             if (e.target.checked) {
@@ -623,9 +648,11 @@
             mapWasOpen = false;
         }
 
-        const tooltip = document.querySelector('body > .map-tip');
-        if (tooltip && mapWin) {
-            mapWin.appendChild(tooltip);
+        if (settings.fixTooltip) {
+            const tooltip = document.querySelector('body > .map-tip');
+            if (tooltip && mapWin) {
+                mapWin.appendChild(tooltip);
+            }
         }
 
         injectPokeballIcons();
