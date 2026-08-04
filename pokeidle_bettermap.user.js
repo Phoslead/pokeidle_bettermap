@@ -13,12 +13,8 @@
 (function () {
     'use strict';
 
-    // =========================================================================
-    // 0. PROTECCIÓN DE LOCALSTORAGE (Prevenir que el juego borre nuestros datos)
-    // =========================================================================
     const PREFIX = 'bettermap_';
     
-    // Proteger localStorage.removeItem()
     const originalRemoveItem = localStorage.removeItem;
     localStorage.removeItem = function(key) {
         if (key && key.startsWith(PREFIX)) {
@@ -28,12 +24,10 @@
         return originalRemoveItem.apply(this, arguments);
     };
 
-    // Proteger localStorage.clear()
     const originalClear = localStorage.clear;
     localStorage.clear = function() {
         console.warn(`[PokeIdle Better Map] El juego intentó hacer un clear() completo. Respaldando datos...`);
         
-        // Guardamos temporalmente nuestras variables
         const misDatos = {};
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
@@ -42,10 +36,8 @@
             }
         }
         
-        // Dejamos que el juego limpie todo
         originalClear.apply(this, arguments);
         
-        // Restauramos nuestras variables protegidas inmediatamente
         for (const key in misDatos) {
             localStorage.setItem(key, misDatos[key]);
         }
