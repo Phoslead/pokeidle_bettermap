@@ -5,65 +5,280 @@
 // @description  Agrega indicadores de captura al mapa
 // @author       phoslead
 // @match        https://poke.idleworld.online/*
-// @grant        none
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @run-at       document-start
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
-    console.log("PokeIdle Better Map: Base cargada correctamente.");
-
-    // Inyectar estilos globales para anclar el tooltip al mapa de forma nativa
-    const style = document.createElement('style');
-    style.innerHTML = `
-        .map-window {
-            overflow: visible !important;
+    // =========================================================================
+    // 0. PROTECCIÓN DE LOCALSTORAGE (Prevenir que el juego borre nuestros datos)
+    // =========================================================================
+    const PREFIX = 'bettermap_';
+    
+    // Proteger localStorage.removeItem()
+    const originalRemoveItem = localStorage.removeItem;
+    localStorage.removeItem = function(key) {
+        if (key && key.startsWith(PREFIX)) {
+            console.warn(`[PokeIdle Better Map] Se bloqueó un intento de borrar la clave: ${key}`);
+            return; 
         }
-        .map-window > .map-tip {
-            position: absolute !important;
-            left: 100% !important;
-            bottom: 0px !important;
-            top: auto !important;
-            right: auto !important;
-            margin-left: 15px !important;
-            transform: none !important;
-            z-index: 999999 !important;
-        }
-    `;
-    document.head.appendChild(style);
+        return originalRemoveItem.apply(this, arguments);
+    };
 
-    // Clave para guardar nuestra lista en el localStorage
+    // Proteger localStorage.clear()
+    const originalClear = localStorage.clear;
+    localStorage.clear = function() {
+        console.warn(`[PokeIdle Better Map] El juego intentó hacer un clear() completo. Respaldando datos...`);
+        
+        // Guardamos temporalmente nuestras variables
+        const misDatos = {};
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith(PREFIX)) {
+                misDatos[key] = localStorage.getItem(key);
+            }
+        }
+        
+        // Dejamos que el juego limpie todo
+        originalClear.apply(this, arguments);
+        
+        // Restauramos nuestras variables protegidas inmediatamente
+        for (const key in misDatos) {
+            localStorage.setItem(key, misDatos[key]);
+        }
+    };
+
+    function initUI() {
+        console.log("PokeIdle Better Map: Inicializando UI...");
+
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .map-window {
+                overflow: visible !important;
+            }
+            .map-window > .map-tip {
+                position: absolute !important;
+                left: 100% !important;
+                bottom: 0px !important;
+                top: auto !important;
+                right: auto !important;
+                margin-left: 15px !important;
+                transform: none !important;
+                z-index: 999999 !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    const storageCache = {
+        get: function (key, defaultValue) {
+            if (typeof GM_getValue !== 'undefined') {
+                return GM_getValue(key, defaultValue);
+            }
+            const val = localStorage.getItem(key);
+            return val !== null ? val : defaultValue;
+        },
+        set: function (key, value) {
+            if (typeof GM_setValue !== 'undefined') {
+                GM_setValue(key, value);
+            } else {
+                localStorage.setItem(key, value);
+            }
+        }
+    };
+
     const CACHE_KEY = 'bettermap_pokemon_data';
-    // Ahora guardaremos un objeto: { "Bulbasaur": { caught: true, locked: true, kills: 10 } }
-    let pokemonDataCache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
 
-    // Clave para guardar configuraciones de la UI
+    if (typeof GM_setValue !== 'undefined' && localStorage.getItem(CACHE_KEY)) {
+        GM_setValue(CACHE_KEY, localStorage.getItem(CACHE_KEY));
+        localStorage.removeItem(CACHE_KEY);
+    }
+
+    let pokemonDataCache = JSON.parse(storageCache.get(CACHE_KEY, '{}'));
+
     const SETTINGS_KEY = 'bettermap_settings';
+    if (typeof GM_setValue !== 'undefined' && localStorage.getItem(SETTINGS_KEY)) {
+        GM_setValue(SETTINGS_KEY, localStorage.getItem(SETTINGS_KEY));
+        localStorage.removeItem(SETTINGS_KEY);
+    }
 
-    // Obtenemos los settings o creamos los por defecto
-    let savedSettings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    let savedSettings = JSON.parse(storageCache.get(SETTINGS_KEY, '{}'));
     let settings = Object.assign({
         showCaughtIcon: true,
         onlyMissing: false,
         showLock: 'text',
-        mapSize: 'normal'
+        mapSize: 'normal',
+        show100KillsCheck: true,
+        onlyMissing100Kills: false
     }, savedSettings);
 
-    // Si veníamos de una versión anterior que usaba "showCaught" para ocultar, la limpiamos/migramos si es necesario.
     if (settings.showCaught !== undefined) {
         settings.showCaughtIcon = settings.showCaught;
         delete settings.showCaught;
     }
 
-    // Si veníamos con el tamaño xlarge, lo migramos a large porque fue removido
     if (settings.mapSize === 'xlarge') {
         settings.mapSize = 'large';
     }
 
-    function saveSettings() {
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    const interceptorScript = document.createElement('script');
+    interceptorScript.textContent = `
+        (function() {
+            function sendToBetterMap(data) {
+                if (!data) return;
+                if (Array.isArray(data)) {
+                    data.forEach(sendToBetterMap);
+                    return;
+                }
+                if (data.type === undefined && typeof data[0] === 'string' && typeof data[1] === 'object') {
+                     sendToBetterMap(data[1]);
+                     return;
+                }
+                if (data.type === 'field-kill') {
+                    window.postMessage({ type: 'BETTERMAP_FIELD_KILL', payload: data }, '*');
+                } else if (data.type === 'catch-result') {
+                    window.postMessage({ type: 'BETTERMAP_CATCH_RESULT', payload: data }, '*');
+                }
+            }
 
-        // Limpiamos los íconos actuales y restauramos visibilidad para redibujar
+            // Fetch
+            const originalFetch = window.fetch;
+            window.fetch = async function(...args) {
+                const response = await originalFetch.apply(this, args);
+                try {
+                    const clone = response.clone();
+                    clone.json().then(data => sendToBetterMap(data)).catch(() => {});
+                } catch(e) {}
+                return response;
+            };
+
+            // XHR
+            const originalOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function() {
+                this.addEventListener('load', function() {
+                    try {
+                        if (this.responseText) {
+                            sendToBetterMap(JSON.parse(this.responseText));
+                        }
+                    } catch(e) {}
+                });
+                return originalOpen.apply(this, arguments);
+            };
+
+            // WebSocket
+            const originalWebSocket = window.WebSocket;
+            window.WebSocket = function(url, protocols) {
+                const ws = new originalWebSocket(url, protocols);
+                ws.addEventListener('message', function(event) {
+                    try {
+                        let dataStr = event.data;
+                        if (typeof dataStr === 'string' && dataStr.startsWith('42')) {
+                            dataStr = dataStr.substring(2);
+                        }
+                        if (typeof dataStr === 'string') {
+                            sendToBetterMap(JSON.parse(dataStr));
+                        }
+                    } catch(e) {}
+                });
+                return ws;
+            };
+            Object.assign(window.WebSocket, originalWebSocket);
+        })();
+    `;
+
+    if (document.head) {
+        document.head.appendChild(interceptorScript);
+    } else {
+        document.documentElement.appendChild(interceptorScript);
+    }
+
+    window.addEventListener('message', function (event) {
+        if (!event.data) return;
+        if (event.data.type === 'BETTERMAP_FIELD_KILL') {
+            const data = event.data.payload;
+            if (data && data.speciesName) {
+                handleFieldKill(data.speciesName);
+            }
+        } else if (event.data.type === 'BETTERMAP_CATCH_RESULT') {
+            const data = event.data.payload;
+            if (data && data.success && data.speciesName) {
+                handleCatchResult(data.speciesName);
+            }
+        }
+    });
+
+    function handleCatchResult(speciesName) {
+        const cacheName = speciesName.toLowerCase().replace(/['’]/g, '').replace(/\s+/g, ' ').trim();
+        let foundKey = null;
+        for (const k of Object.keys(pokemonDataCache)) {
+            const kName = k.toLowerCase().replace(/['’]/g, '').replace(/\s+/g, ' ').trim();
+            if (kName === cacheName || (cacheName === 'nidoran male' && kName === 'nidoranma') || (cacheName === 'nidoran female' && kName === 'nidoranfe')) {
+                foundKey = k;
+                break;
+            }
+        }
+
+        if (!foundKey) {
+            pokemonDataCache[speciesName] = { caught: true, locked: true, kills: 0 };
+            storageCache.set(CACHE_KEY, JSON.stringify(pokemonDataCache));
+            document.querySelectorAll('.custom-caught-icon').forEach(el => el.remove());
+
+            if (settings.onlyMissing) {
+                document.querySelectorAll('.hunt-marker').forEach(el => el.style.display = '');
+            }
+            injectPokeballIcons();
+        } else {
+            const data = pokemonDataCache[foundKey];
+            if (!data.caught) {
+                data.caught = true;
+                storageCache.set(CACHE_KEY, JSON.stringify(pokemonDataCache));
+
+                document.querySelectorAll('.custom-caught-icon').forEach(el => el.remove());
+
+                if (settings.onlyMissing) {
+                    document.querySelectorAll('.hunt-marker').forEach(el => el.style.display = '');
+                }
+                injectPokeballIcons();
+            }
+        }
+    }
+
+    function handleFieldKill(speciesName) {
+        const cacheName = speciesName.toLowerCase().replace(/['’]/g, '').replace(/\s+/g, ' ').trim();
+        let foundKey = null;
+        for (const k of Object.keys(pokemonDataCache)) {
+            const kName = k.toLowerCase().replace(/['’]/g, '').replace(/\s+/g, ' ').trim();
+            if (kName === cacheName || (cacheName === 'nidoran male' && kName === 'nidoranma') || (cacheName === 'nidoran female' && kName === 'nidoranfe')) {
+                foundKey = k;
+                break;
+            }
+        }
+
+        if (!foundKey) {
+            pokemonDataCache[speciesName] = { caught: false, locked: true, kills: 1 };
+            storageCache.set(CACHE_KEY, JSON.stringify(pokemonDataCache));
+            document.querySelectorAll('.custom-lock-icon').forEach(el => el.remove());
+            injectPokeballIcons();
+        } else {
+            const data = pokemonDataCache[foundKey];
+            if (data.locked && data.kills < 100) {
+                data.kills += 1;
+                if (data.kills >= 100) {
+                    data.locked = false;
+                }
+                storageCache.set(CACHE_KEY, JSON.stringify(pokemonDataCache));
+                document.querySelectorAll('.custom-lock-icon').forEach(el => el.remove());
+                injectPokeballIcons();
+            }
+        }
+    }
+
+    function saveSettings() {
+        storageCache.set(SETTINGS_KEY, JSON.stringify(settings));
+
         document.querySelectorAll('.custom-caught-icon, .custom-lock-icon').forEach(el => el.remove());
         document.querySelectorAll('.hunt-marker').forEach(el => el.style.display = '');
 
@@ -71,18 +286,13 @@
         applyMapSize();
     }
 
-    /**
-     * Aplica el tamaño seleccionado a la ventana del mapa
-     */
     function applyMapSize() {
         const mapAreas = document.querySelector('.map-areas');
         if (!mapAreas) return;
 
-        // Buscamos la ventana contenedora principal
         const mapWin = mapAreas.closest('.map-window');
         if (!mapWin) return;
 
-        // Volvemos a usar zoom ya que el tooltip ahora está fijo por CSS y no le afectará el bug
         if (settings.mapSize === 'normal') {
             mapWin.style.zoom = '1';
         } else if (settings.mapSize === 'large') {
@@ -90,19 +300,12 @@
         }
     }
 
-    /**
-     * Verifica si un Pokémon está atrapado según nuestro caché.
-     */
     function isCaught(pokemonName) {
         const dataKey = Object.keys(pokemonDataCache).find(k => k.toLowerCase() === pokemonName.toLowerCase());
         return dataKey ? pokemonDataCache[dataKey].caught : false;
     }
 
-    /**
-     * Escanea la Pokedex para aprender qué Pokémon ya están atrapados.
-     */
     function scanPokedex() {
-        // Seleccionamos TODOS los botones de Pokémon en la pokedex (atrapados o no)
         const pokedexEntries = document.querySelectorAll('.dex-cell');
 
         if (pokedexEntries.length > 0) {
@@ -118,25 +321,20 @@
 
                 if (lockBadge) {
                     locked = true;
-                    // Extraemos los números del title ej: "10/100 kills"
                     const match = lockBadge.title.match(/(\d+)\/100/);
                     if (match) kills = parseInt(match[1], 10);
                 }
 
-                // Guardamos o actualizamos la info del Pokémon en el caché
                 pokemonDataCache[name] = {
                     caught: isCaught,
                     locked: locked,
                     kills: kills
                 };
             });
-            localStorage.setItem(CACHE_KEY, JSON.stringify(pokemonDataCache));
+            storageCache.set(CACHE_KEY, JSON.stringify(pokemonDataCache));
         }
     }
 
-    /**
-     * Función que busca los nodos de los Pokémon en el mapa y agrega la Pokéball y el Candado
-     */
     function injectPokeballIcons() {
         const mapPokemonNodes = document.querySelectorAll('.hunt-marker');
 
@@ -146,46 +344,40 @@
 
             if (!pokemonName) return;
 
-            // Buscamos ignorando mayúsculas y mapeando nombres inconsistentes
             const dataKey = Object.keys(pokemonDataCache).find(k => {
-                // Normalizamos espacios y saltos de línea a un solo espacio
-                let cacheName = k.toLowerCase().replace(/\s+/g, ' ').trim();
-                let mapName = pokemonName.toLowerCase().replace(/\s+/g, ' ').trim();
+                let cacheName = k.toLowerCase().replace(/['’]/g, '').replace(/\s+/g, ' ').trim();
+                let mapName = pokemonName.toLowerCase().replace(/['’]/g, '').replace(/\s+/g, ' ').trim();
 
-                // Excepciones conocidas de nombres en el mapa vs pokedex
                 if (mapName === 'nidoranma') mapName = 'nidoran male';
                 if (mapName === 'nidoranfe') mapName = 'nidoran female';
-                if (mapName === 'mr. mime') mapName = 'mr. mime'; // placeholder for future exceptions
+                if (mapName === 'mr. mime') mapName = 'mr. mime';
+                if (mapName === 'farfetchd') mapName = 'farfetchd';
 
-                // Si coinciden exactamente
                 if (cacheName === mapName) return true;
 
-                // Si el nombre del mapa es una variante con prefijo (ej: "Brave Nidoking", "Taekwondo Hitmonlee")
-                // Verificamos si el nombre del mapa termina con " " + el nombre base
                 if (mapName.endsWith(' ' + cacheName)) return true;
 
-                // Coincidencia segura por si el prefijo está estructurado de otra forma
                 try {
                     const regex = new RegExp('\\b' + cacheName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b');
                     if (regex.test(mapName)) return true;
-                } catch(e) {}
+                } catch (e) { }
 
                 return false;
             });
             const data = pokemonDataCache[dataKey];
 
             if (data) {
-                // FILTRO: Ocultar atrapados completamente del mapa
-                if (data.caught) {
-                    if (settings.onlyMissing) {
-                        node.style.display = 'none';
-                        return; // Si está oculto en el mapa, no le inyectamos los demás iconos
-                    } else {
-                        node.style.display = '';
-                    }
+                let shouldHide = false;
+                if (data.caught && settings.onlyMissing) shouldHide = true;
+                if ((!data.locked || data.kills >= 100) && settings.onlyMissing100Kills) shouldHide = true;
+
+                if (shouldHide) {
+                    node.style.display = 'none';
+                    return;
+                } else {
+                    node.style.display = '';
                 }
 
-                // INYECTAR POKEBALL
                 if (data.caught && settings.showCaughtIcon && !node.querySelector('.custom-caught-icon')) {
                     const icon = document.createElement('img');
                     icon.src = '/assets/topmenu/pokemon.png';
@@ -204,17 +396,31 @@
                     node.appendChild(icon);
                 }
 
-                // INYECTAR CANDADO Y CONTADOR
-                if (data.locked && settings.showLock !== 'disabled' && !node.querySelector('.custom-lock-icon')) {
+                let showLockIcon = false;
+                let lockText = '';
+                let isCompleted = !data.locked || data.kills >= 100;
+
+                if (isCompleted && settings.show100KillsCheck) {
+                    showLockIcon = true;
+                    lockText = '✅';
+                } else if (!isCompleted && settings.showLock !== 'disabled') {
+                    showLockIcon = true;
+                    if (settings.showLock === 'text' && data.kills > 0) {
+                        lockText = `⚔️ ${data.kills}/100`;
+                    } else {
+                        lockText = `⚔️`;
+                    }
+                }
+
+                if (showLockIcon && !node.querySelector('.custom-lock-icon')) {
                     const lockEl = document.createElement('div');
                     lockEl.className = 'custom-lock-icon';
 
-                    // Posicionarlo entre la imagen y el nombre
                     lockEl.style.position = 'absolute';
-                    lockEl.style.top = '36px'; // Justo debajo del círculo (que suele ser de 42px)
+                    lockEl.style.top = '36px';
                     lockEl.style.left = '50%';
                     lockEl.style.transform = 'translateX(-50%)';
-                    lockEl.style.background = 'rgba(0,0,0,0.85)';
+                    lockEl.style.background = isCompleted ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.85)';
                     lockEl.style.color = '#fff';
                     lockEl.style.borderRadius = '4px';
                     lockEl.style.fontSize = '9px';
@@ -224,14 +430,8 @@
                     lockEl.style.zIndex = '101';
                     lockEl.style.border = '1px solid rgba(255,255,255,0.15)';
 
-                    // Lógica para mostrar texto o solo candado según la configuración
-                    if (settings.showLock === 'text' && data.kills > 0) {
-                        lockEl.innerText = `⚔️ ${data.kills}/100`;
-                        lockEl.style.padding = '1px 4px';
-                    } else {
-                        lockEl.innerText = `⚔️`;
-                        lockEl.style.padding = '1px 3px';
-                    }
+                    lockEl.innerText = lockText;
+                    lockEl.style.padding = lockText === '⚔️' ? '1px 3px' : '1px 4px';
 
                     node.appendChild(lockEl);
                 }
@@ -239,13 +439,9 @@
         });
     }
 
-    /**
-     * Inyecta un botón a la derecha de las pestañas de Zonas (Kanto, Johto, etc.)
-     */
     function injectBetterMapBadge() {
         if (document.querySelector('.better-map-badge')) return;
 
-        // El HTML original usa la clase .map-areas para el contenedor
         const tabsContainer = document.querySelector('.map-areas');
 
         if (tabsContainer) {
@@ -253,7 +449,6 @@
             badge.className = 'better-map-badge';
             badge.innerText = 'Better Map';
 
-            // Estilos copiados de la "IV badge" de pokeidle_bc.user.js
             badge.style.color = '#e8c98a';
             badge.style.borderColor = '#b99a58 #7a5c22 #4f3d17';
             badge.style.background = 'linear-gradient(#242e3ce6, #0d131cf2)';
@@ -265,13 +460,12 @@
             badge.style.border = '1px solid';
             badge.style.display = 'inline-flex';
             badge.style.alignItems = 'center';
-            badge.style.marginLeft = 'auto'; // Lo empuja hacia la derecha
-            badge.style.cursor = 'pointer'; // Cambiado a pointer para indicar que es clickeable
+            badge.style.marginLeft = 'auto';
+            badge.style.cursor = 'pointer';
             badge.style.userSelect = 'none';
 
             badge.onclick = toggleSettingsWindow;
 
-            // Nos aseguramos que el contenedor permita marginLeft=auto
             if (window.getComputedStyle(tabsContainer).display !== 'flex') {
                 tabsContainer.style.display = 'flex';
             }
@@ -281,9 +475,6 @@
         }
     }
 
-    /**
-     * Crea y muestra la ventana de configuración
-     */
     function toggleSettingsWindow() {
         let win = document.getElementById('bettermap-settings-win');
         if (win) {
@@ -293,7 +484,6 @@
 
         win = document.createElement('div');
         win.id = 'bettermap-settings-win';
-        // Estilos para simular una ventana del juego
         win.style.position = 'fixed';
         win.style.top = '50%';
         win.style.left = '50%';
@@ -321,10 +511,24 @@
                 </label>
             </div>
 
-            <div style="margin-bottom: 18px;">
+            <div style="margin-bottom: 10px;">
                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px;">
                     <input type="checkbox" id="bm-only-missing" ${settings.onlyMissing ? 'checked' : ''} style="cursor: pointer;">
                     Only missing pokemon to catch
+                </label>
+            </div>
+
+            <div style="margin-bottom: 10px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px;">
+                    <input type="checkbox" id="bm-show-100-check" ${settings.show100KillsCheck ? 'checked' : ''} style="cursor: pointer;">
+                    Show / hide 100 kills completed check
+                </label>
+            </div>
+
+            <div style="margin-bottom: 18px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px;">
+                    <input type="checkbox" id="bm-only-missing-100" ${settings.onlyMissing100Kills ? 'checked' : ''} style="cursor: pointer;">
+                    Only show pokemon missing 100 kills
                 </label>
             </div>
 
@@ -359,7 +563,6 @@
 
         document.body.appendChild(win);
 
-        // Eventos
         document.getElementById('bm-close').onclick = () => win.remove();
 
         document.getElementById('bm-show-caught-icon').onchange = (e) => {
@@ -369,6 +572,16 @@
 
         document.getElementById('bm-only-missing').onchange = (e) => {
             settings.onlyMissing = e.target.checked;
+            saveSettings();
+        };
+
+        document.getElementById('bm-show-100-check').onchange = (e) => {
+            settings.show100KillsCheck = e.target.checked;
+            saveSettings();
+        };
+
+        document.getElementById('bm-only-missing-100').onchange = (e) => {
+            settings.onlyMissing100Kills = e.target.checked;
             saveSettings();
         };
 
@@ -391,24 +604,18 @@
 
     let mapWasOpen = false;
 
-    // Usar un MutationObserver para detectar cambios en la pantalla
     const observer = new MutationObserver(() => {
         const mapWin = document.querySelector('.map-window');
 
-        // Lógica para detectar si el mapa se acaba de abrir y mover la cámara
         if (mapWin && !mapWasOpen) {
             mapWasOpen = true;
             setTimeout(() => {
                 const viewport = document.querySelector('.map-viewport');
                 if (viewport) {
-                    // --- AJUSTA ESTOS VALORES PARA CAMBIAR LA POSICIÓN INICIAL ---
-                    // 0.0 = Arriba/Izquierda | 0.5 = Centro exacto | 1.0 = Abajo/Derecha
-                    const MULTIPLICADOR_HORIZONTAL = 0.35; // Cambia este número a tu gusto (ej. 0.3)
-                    const MULTIPLICADOR_VERTICAL = 0.15; // Cambia este número a tu gusto (ej. 0.8)
+                    const MULTIPLICADOR_HORIZONTAL = 0.35;
+                    const MULTIPLICADOR_VERTICAL = 0.15;
 
-                    // Posición horizontal personalizada
                     viewport.scrollLeft = (viewport.scrollWidth - viewport.clientWidth) * MULTIPLICADOR_HORIZONTAL;
-                    // Posición vertical personalizada
                     viewport.scrollTop = (viewport.scrollHeight - viewport.clientHeight) * MULTIPLICADOR_VERTICAL;
                 }
             }, 100);
@@ -416,25 +623,27 @@
             mapWasOpen = false;
         }
 
-        // Mover el tooltip dentro de la ventana del mapa si aparece en el body
         const tooltip = document.querySelector('body > .map-tip');
         if (tooltip && mapWin) {
             mapWin.appendChild(tooltip);
         }
 
-        // Intentamos inyectar íconos por si estamos en el mapa
         injectPokeballIcons();
 
-        // Intentamos inyectar el badge a la derecha de las zonas
         injectBetterMapBadge();
-
-        // Intentamos escanear la pokedex por si está abierta
         scanPokedex();
 
-        // Mantenemos el tamaño del mapa si está abierto
         applyMapSize();
     });
 
-    observer.observe(document.body, { childList: true, subtree: true });
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            initUI();
+            observer.observe(document.body, { childList: true, subtree: true });
+        });
+    } else {
+        initUI();
+        observer.observe(document.body, { childList: true, subtree: true });
+    }
 
 })();

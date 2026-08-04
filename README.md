@@ -8,7 +8,7 @@ An advanced quality-of-life userscript that adds capture indicators, progress tr
 
 - **Capture Indicators:** Adds a small Pokéball icon next to Pokémon you have already caught directly on the map.
 - **Hide Caught Pokémon:** Option to completely hide Pokémon you've already caught from the map, leaving only the missing ones visible.
-- **EXP Bonus Tracker (100 Defeats):** Displays a Sword icon (⚔️) or a text counter (e.g., `10/100`) on map sprites to easily track your progress towards the 100 kills EXP bonus without opening the Pokédex.
+- **EXP Bonus Tracker (100 Defeats):** Displays a Sword icon (⚔️), a text counter (e.g., `10/100`), or a completion mark (✅) on map sprites to easily track your progress towards the 100 kills EXP bonus without opening the Pokédex.
 - **Map Size Adjustments:** Switch between *Normal* and *Large* map sizes for better visibility.
 - **Tooltip Fix:** Custom CSS injection that fixes the native map tooltip position so it no longer gets cut off or behaves erratically when the map is zoomed.
 - **In-Game Configuration Menu:** Easy-to-use settings menu accessible via a custom "Better Map" badge next to the map zones tabs.
@@ -26,8 +26,8 @@ An advanced quality-of-life userscript that adds capture indicators, progress tr
 ## 📖 How to Use
 
 1. **Populate Data:**
-   - The script works by reading your Pokédex. Open your Pokédex in the game at least once so the script can scan and cache which Pokémon you've caught and your kill counts.
-   - Every time a new Pokémon is caught, the Pokédex must be opened to register the new changes; this is due to the way the game displays information to the player.
+   - Open your Pokédex in the game at least once so the script can scan and cache your current caught Pokémon and kill counts.
+   - **Real-Time Updates:** After the initial scan, the script automatically listens to the game's network traffic. Every time you kill or catch a Pokémon, the map will update instantly in real-time. You don't need to keep opening the Pokédex.
 
 2. **Access Settings:**
    - Open the Map window.
@@ -37,6 +37,8 @@ An advanced quality-of-life userscript that adds capture indicators, progress tr
 3. **Configure Options:**
    - **Show / hide caught pokemon icons:** Toggle the Pokéball icon on caught Pokémon.
    - **Only missing pokemon to catch:** Hide caught Pokémon completely from the map.
+   - **Show / hide 100 kills completed check:** Toggle the ✅ icon for Pokémon you have already defeated 100 times.
+   - **Only show pokemon missing 100 kills:** Hide Pokémon completely from the map if they have already reached the 100 kills milestone.
    - **Map Size:** Choose between *Normal* or *Large* map views.
    - **Show EXP bonus for 100 defeats:** Choose how you want to display the 100 kills progress (*x/100*, *Icon only*, or *Disabled*).
 
@@ -78,5 +80,24 @@ If the automatic link does not trigger your script manager, follow these steps:
 4. Paste the code inside the Tampermonkey script editor, replacing any default template text.
 5. Save the script (**Ctrl + S** or `File -> Save`).
 6. Refresh the game tab.
+
+---
+
+### Option 3: Desktop Launchers (e.g., PokeGrid)
+
+If you are playing via a dedicated desktop launcher like **PokeGrid** that includes a custom script manager, you must make a minor adjustment to the script code to ensure compatibility and data protection.
+
+1. Paste the script into the launcher's script manager.
+2. At the very top of the script, find these two lines in the header:
+   ```javascript
+   // @grant        GM_getValue
+   // @grant        GM_setValue
+   ```
+3. Change them to:
+   ```javascript
+   // @grant        none
+   ```
+4. **Save and reload.**
+
 
 ---
