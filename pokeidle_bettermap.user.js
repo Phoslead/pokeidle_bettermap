@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeIdle Better Map
 // @namespace    http://tampermonkey.net/
-// @version      0.1
+// @version      0.2
 // @description  Agrega indicadores de captura al mapa
 // @author       phoslead
 // @match        https://poke.idleworld.online/*
