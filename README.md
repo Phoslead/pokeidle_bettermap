@@ -83,7 +83,7 @@ If the automatic link does not trigger your script manager, follow these steps:
 
 ---
 
-### Option 3: Desktop Launchers (e.g., PokeGrid)
+### Option 3: Desktop Launchers (e.g., [PokeGrid](https://github.com/soufoka/PokeGrid-source))
 
 If you are playing via a dedicated desktop launcher like **PokeGrid** that includes a custom script manager, you must make a minor adjustment to the script code to ensure compatibility and data protection.
 
