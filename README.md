@@ -21,6 +21,9 @@ An advanced quality-of-life userscript that adds capture indicators, progress tr
 ### Large map size and script settings.
 <img width="1209" height="1248" alt="image" src="https://github.com/user-attachments/assets/69c548fc-d5cb-4f00-9a87-babc09f5456f" />
 
+### Fix Map tooltip.
+<img width="965" height="827" alt="image" src="https://github.com/user-attachments/assets/f866b09a-bcc3-4551-b95e-507545bd8b33" />
+
 ---
 
 ## 📖 How to Use
